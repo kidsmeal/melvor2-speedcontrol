@@ -12,6 +12,7 @@ public class SpeedControlMod : IMod
     const int gameTicksPerSecond = 60;
     const double maxFrameTime = 0.25;
     const int nodeCheckInterval = 30; // frames between checks for the footer and GameDriver nodes.
+    const int missedChecksBeforeLog = 10; // failed node checks in a row before logging, about 5s at 60fps.
     const int buttonSpacing = 3; // pixels between the speed buttons in the popup.
     static readonly Vector2 pauseButtonSize = new Vector2(34, 30);
     static readonly Vector2 speedButtonSize = new Vector2(40, 30);
@@ -26,6 +27,7 @@ public class SpeedControlMod : IMod
     Button pauseButton;
     Texture2D pauseIcon, playIcon;
     Node gameDriver;
+    int missedNodeChecks;
 
     string savedSpeedFile => Path.Combine(ctx.Directory, "speed.txt");
 
@@ -66,6 +68,7 @@ public class SpeedControlMod : IMod
             }
             if (!GodotObject.IsInstanceValid(gameDriver))
                 gameDriver = Footer.Find(ctx.Tree.Root, "GameDriver");
+            LogMissingNodes();
         }
 
         // GameDriver._PhysicsProcess is what calls PropagateTick, so switching it off pauses the game.
@@ -90,6 +93,22 @@ public class SpeedControlMod : IMod
             game.PropagateTick();
             extraTicksOwed--;
         }
+    }
+
+    // Logs once when a game update renames the nodes this mod hooks into. Resets once both are found again.
+    void LogMissingNodes()
+    {
+        bool hasIcon = footerIcon != null;
+        bool hasDriver = gameDriver != null;
+        if (hasIcon && hasDriver)
+        {
+            missedNodeChecks = 0;
+            return;
+        }
+        missedNodeChecks++;
+        if (missedNodeChecks != missedChecksBeforeLog) return;
+        if (!hasIcon) ctx.Log("MusicButton not found, speed icon not added");
+        if (!hasDriver) ctx.Log("GameDriver not found, pause will not work");
     }
 
     void BuildPopup()
