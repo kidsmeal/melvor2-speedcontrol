@@ -8,26 +8,30 @@ namespace SpeedControl;
 
 public class SpeedControlMod : IMod
 {
-    int[] speeds = { 1, 2, 4, 8, 10 };
+    static readonly int[] speeds = { 1, 2, 4, 8, 10 };
     const int gameTicksPerSecond = 60;
     const double maxFrameTime = 0.25;
-
+    const int nodeCheckInterval = 30; // frames between checks for the footer and GameDriver nodes.
+    const int buttonSpacing = 3; // pixels between the speed buttons in the popup.
+    static readonly Vector2 pauseButtonSize = new Vector2(34, 30);
+    static readonly Vector2 speedButtonSize = new Vector2(40, 30);
     ModContext ctx;
     int speed = 1;
     bool paused;
     double extraTicksOwed;
-    Stopwatch clock = new Stopwatch();
+    Stopwatch frameTimer = new Stopwatch();
 
-    Button icon;
+    Button footerIcon;
     Control popup;
     Button pauseButton;
-    Texture2D pauseTex, playTex;
-    Node driver;
+    Texture2D pauseIcon, playIcon;
+    Node gameDriver;
+
+    string savedSpeedFile => Path.Combine(ctx.Directory, "speed.txt");
 
     public void OnLoad(ModContext ctx)
     {
         this.ctx = ctx;
-        string savedSpeedFile = Path.Combine(ctx.Directory, "speed.txt");
         if (File.Exists(savedSpeedFile))
         {
             string fileText = File.ReadAllText(savedSpeedFile);
@@ -40,8 +44,8 @@ public class SpeedControlMod : IMod
 
     void Update()
     {
-        double dt = clock.Elapsed.TotalSeconds;
-        clock.Restart();
+        double timeSinceLastFrame = frameTimer.Elapsed.TotalSeconds;
+        frameTimer.Restart();
 
         if (popup == null) BuildPopup();
 
@@ -53,32 +57,33 @@ public class SpeedControlMod : IMod
         }
 
         // The footer and GameDriver get rebuilt when a save loads, so look again when they go away.
-        if (Engine.GetProcessFrames() % 30 == 0)
+        if (Engine.GetProcessFrames() % nodeCheckInterval == 0)
         {
-            if (!GodotObject.IsInstanceValid(icon))
+            if (!GodotObject.IsInstanceValid(footerIcon))
             {
-                icon = Footer.AddIcon(ctx.Tree, "SpeedControlIcon", "res://Assets/Icons/TimeInterval_48.png", null);
-                if (icon != null) icon.Pressed += () => Footer.Toggle(popup, icon);
+                footerIcon = Footer.AddIcon(ctx.Tree, "SpeedControlIcon", "res://Assets/Icons/TimeInterval_48.png", null);
+                if (footerIcon != null) footerIcon.Pressed += () => Footer.Toggle(popup, footerIcon);
             }
-            if (!GodotObject.IsInstanceValid(driver))
-                driver = Footer.Find(ctx.Tree.Root, "GameDriver");
+            if (!GodotObject.IsInstanceValid(gameDriver))
+                gameDriver = Footer.Find(ctx.Tree.Root, "GameDriver");
         }
 
         // GameDriver._PhysicsProcess is what calls PropagateTick, so switching it off pauses the game.
         if (paused)
         {
-            if (driver != null && driver.IsPhysicsProcessing()) driver.SetPhysicsProcess(false);
+            if (gameDriver != null && gameDriver.IsPhysicsProcessing()) gameDriver.SetPhysicsProcess(false);
             return;
         }
 
-        if (speed == 1 || GameAccess.IsComputingOffline || ctx.Tree.Paused)
+        bool runningAtNormalSpeed = speed == 1 || GameAccess.IsComputingOffline || ctx.Tree.Paused;
+        if (runningAtNormalSpeed)
         {
             extraTicksOwed = 0;
             return;
         }
 
         int speedMultiplier = speed - 1;
-        double frameTime = Math.Min(dt, maxFrameTime);
+        double frameTime = Math.Min(timeSinceLastFrame, maxFrameTime);
         extraTicksOwed += frameTime * gameTicksPerSecond * speedMultiplier;
         while (extraTicksOwed >= 1)
         {
@@ -89,52 +94,52 @@ public class SpeedControlMod : IMod
 
     void BuildPopup()
     {
-        pauseTex = GD.Load<Texture2D>("res://Assets/Icons/Pause.png");
-        playTex = GD.Load<Texture2D>("res://Assets/Icons/Play.png");
+        pauseIcon = GD.Load<Texture2D>("res://Assets/Icons/Pause.png");
+        playIcon = GD.Load<Texture2D>("res://Assets/Icons/Play.png");
 
         var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 3);
+        row.AddThemeConstantOverride("separation", buttonSpacing);
 
         pauseButton = new Button();
-        pauseButton.Icon = pauseTex;
+        pauseButton.Icon = pauseIcon;
         pauseButton.ExpandIcon = true;
         pauseButton.ToggleMode = true;
-        pauseButton.CustomMinimumSize = new Vector2(34, 30);
+        pauseButton.CustomMinimumSize = pauseButtonSize;
         Footer.Style(pauseButton);
         pauseButton.Toggled += SetPaused;
         row.AddChild(pauseButton);
 
         var group = new ButtonGroup();
-        foreach (int s in speeds)
+        foreach (int option in speeds)
         {
-            var b = new Button();
-            b.Text = s + "x";
-            b.ToggleMode = true;
-            b.ButtonGroup = group;
-            b.ButtonPressed = s == speed;
-            b.CustomMinimumSize = new Vector2(40, 30);
-            Footer.Style(b);
-            b.Pressed += () => SetSpeed(s);
-            row.AddChild(b);
+            var button = new Button();
+            button.Text = option + "x";
+            button.ToggleMode = true;
+            button.ButtonGroup = group;
+            button.ButtonPressed = option == speed;
+            button.CustomMinimumSize = speedButtonSize;
+            Footer.Style(button);
+            button.Pressed += () => SetSpeed(option);
+            row.AddChild(button);
         }
 
         popup = Footer.MakePopup(ctx.Tree, row);
     }
 
-    void SetPaused(bool on)
+    void SetPaused(bool isPaused)
     {
-        paused = on;
+        paused = isPaused;
         extraTicksOwed = 0;
-        pauseButton.Icon = on ? playTex : pauseTex;
-        if (driver != null) driver.SetPhysicsProcess(!on);
-        ctx.Log(on ? "paused" : "resumed");
+        pauseButton.Icon = isPaused ? playIcon : pauseIcon;
+        if (gameDriver != null) gameDriver.SetPhysicsProcess(!isPaused);
+        ctx.Log(isPaused ? "paused" : "resumed");
     }
 
-    void SetSpeed(int s)
+    void SetSpeed(int newSpeed)
     {
-        speed = s;
+        speed = newSpeed;
         extraTicksOwed = 0;
-        File.WriteAllText(Path.Combine(ctx.Directory, "speed.txt"), s.ToString());
-        ctx.Log("speed " + s + "x");
+        File.WriteAllText(savedSpeedFile, newSpeed.ToString());
+        ctx.Log($"speed {newSpeed}x");
     }
 }
