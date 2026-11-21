@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>SpeedControl</AssemblyName>
     <RootNamespace>SpeedControl</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.1.2</Version>
     <Nullable>disable</Nullable>
     <DebugType>none</DebugType>
     <GenerateDependencyFile>false</GenerateDependencyFile>
