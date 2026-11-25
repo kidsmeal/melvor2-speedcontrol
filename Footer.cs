@@ -57,12 +57,15 @@ static class Footer
         var img = GD.Load<Texture2D>(path).GetImage();
         img.Decompress();
         img.Convert(Image.Format.Rgba8);
+        // game icons ship with mipmaps; SetPixel only edits level 0, so the smaller levels keep the original color.
+        img.ClearMipmaps();
         for (int y = 0; y < img.GetHeight(); y++)
             for (int x = 0; x < img.GetWidth(); x++)
             {
                 float alpha = img.GetPixel(x, y).A;
                 img.SetPixel(x, y, new Color(Gold, alpha));
             }
+        img.GenerateMipmaps();
         return ImageTexture.CreateFromImage(img);
     }
 
